@@ -561,6 +561,11 @@ async function initFirebase() {
           const remote = snap.data();
           const rUpd = remote.updatedAt || 0;
           const lUpd = state.updatedAt || 0;
+          // PROTECCIÓN anti-borrado: si la nube viene vacía pero este equipo tiene
+          // datos, subimos los nuestros en vez de traer el vacío (auto-reparación).
+          const remoteEmpty = (!remote.tasks || !remote.tasks.length) && (!remote.habits || !remote.habits.length);
+          const localHasData = (state.tasks && state.tasks.length) || (state.habits && state.habits.length);
+          if (remoteEmpty && localHasData) { cloudWrite(); setSync('synced'); return; }
           if (rUpd > lUpd) {
             // la nube es más reciente: aplicarla (y nunca pisarla con lo vacío del equipo nuevo)
             _skipCloud = true;
