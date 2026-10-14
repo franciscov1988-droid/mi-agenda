@@ -557,21 +557,27 @@ async function initFirebase() {
         // escuchar cambios remotos
         if (fb.onSnap) fb.onSnap();
         fb.onSnap = fs.onSnapshot(fb.doc, snap => {
-          if (!snap.exists()) { cloudWrite(); return; }
+          if (!snap.exists()) { cloudWrite(); return; } // primera vez en la nube: subir lo local
           const remote = snap.data();
-          if (remote.updatedAt && remote.updatedAt > (state.updatedAt || 0)) {
+          const rUpd = remote.updatedAt || 0;
+          const lUpd = state.updatedAt || 0;
+          if (rUpd > lUpd) {
+            // la nube es más reciente: aplicarla (y nunca pisarla con lo vacío del equipo nuevo)
             _skipCloud = true;
             state.tasks = remote.tasks || [];
             state.habits = remote.habits || [];
             if (remote.settings) state.settings = Object.assign(state.settings, remote.settings);
-            state.updatedAt = remote.updatedAt;
+            state.updatedAt = rUpd;
             localStorage.setItem(LS_KEY, JSON.stringify(state));
             _skipCloud = false;
             applyTheme(); renderAll();
+          } else if (lUpd > rUpd) {
+            // lo local es más reciente: subirlo
+            cloudWrite();
           }
           setSync('synced');
-        }, err => { console.warn('snapshot', err); setSync('local'); });
-        cloudWrite();
+        }, err => { console.warn('snapshot', err); setSync('local'); toast('Sin acceso a la nube: revisa las reglas de Firestore'); });
+        // Sin cloudWrite incondicional: el primer snapshot decide quién gana (evita borrar datos)
       } else {
         if (fb.onSnap) { fb.onSnap(); fb.onSnap = null; }
         setSync('local');
