@@ -1,5 +1,5 @@
 /* Service worker — caché offline y notificaciones */
-const CACHE = 'miagenda-v3';
+const CACHE = 'miagenda-v4';
 // Estáticos que casi no cambian (caché primero)
 const ASSETS = [
   './styles.css', './app.js', './manifest.webmanifest', './chart.umd.min.js',

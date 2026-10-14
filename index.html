@@ -158,11 +158,13 @@
           <span>Notificaciones de pendientes</span>
           <button id="notif-toggle" class="switch" role="switch" aria-checked="false"><span></span></button>
         </label>
-        <label class="row-between">
-          <span>Hora del recordatorio diario</span>
-          <input id="reminder-time" type="time" class="field narrow" value="19:00" />
-        </label>
-        <p class="muted small">Recibirás un aviso si quedan tareas sin marcar. En el celular, instala la app para avisos más confiables.</p>
+        <div class="rt-head"><span>Horas de recordatorio</span></div>
+        <ul id="reminder-times" class="rt-list"></ul>
+        <form id="add-rtime" class="inline-add">
+          <input id="new-rtime" type="time" class="field narrow" value="19:00" />
+          <button class="btn-ghost">+ Agregar hora</button>
+        </form>
+        <p class="muted small">A cada hora de la lista recibirás un aviso si quedan tareas sin marcar. Agrega las que quieras (ej. mañana, tarde y noche). En el celular, instala la app para avisos más confiables.</p>
       </div>
 
       <div class="card">
@@ -191,7 +193,7 @@
         <button id="signout-btn" class="btn-ghost danger" hidden>Cerrar sesión</button>
       </div>
 
-      <p class="version-note">Mi Agenda · v1.1 · hecha para Paco</p>
+      <p class="version-note">Mi Agenda · v1.2 · hecha para Paco</p>
     </section>
   </main>
 

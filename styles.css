@@ -276,6 +276,12 @@ canvas { max-width: 100%; }
 .switch span { position: absolute; top: 3px; left: 3px; width: 21px; height: 21px; border-radius: 50%; background: #fff; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
 .switch[aria-checked="true"] { background: var(--accent); }
 .switch[aria-checked="true"] span { left: 22px; }
+.rt-head { font-weight: 600; font-size: .86rem; padding: 9px 0 4px; }
+.rt-list { list-style: none; padding: 0; margin: 4px 0 8px; display: flex; flex-direction: column; gap: 7px; }
+.rt-list li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; }
+.rt-list .rt-time { flex: 1; font-weight: 600; font-size: .92rem; letter-spacing: .01em; }
+.rt-list button { background: transparent; border: none; color: var(--muted); font-size: 1.05rem; line-height: 1; }
+.rt-list button:hover { color: var(--danger); }
 .area-editor { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 7px; }
 .area-editor li { display: flex; align-items: center; gap: 10px; padding: 7px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; }
 .area-editor .swatch { width: 14px; height: 14px; border-radius: 4px; flex: none; }

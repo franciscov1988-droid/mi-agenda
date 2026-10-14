@@ -40,7 +40,7 @@ let state = {
   tasks: [], habits: [],
   settings: {
     theme: 'light',
-    reminderTime: CFG.defaultReminderTime || '19:00',
+    reminderTimes: [CFG.defaultReminderTime || '19:00'],
     notifications: false,
     areas: DEFAULT_AREAS.slice()
   },
@@ -59,7 +59,14 @@ function loadLocal() {
     if (raw) {
       const p = JSON.parse(raw);
       state = Object.assign(state, p);
-      state.settings = Object.assign({ theme: 'light', reminderTime: '19:00', notifications: false, areas: DEFAULT_AREAS.slice() }, p.settings || {});
+      // defaults SIN reminderTimes, para no pisar la migración de la hora antigua
+      state.settings = Object.assign({ theme: 'light', notifications: false, areas: DEFAULT_AREAS.slice() }, p.settings || {});
+      // migrar de una sola hora (reminderTime) a varias (reminderTimes)
+      if (!Array.isArray(state.settings.reminderTimes)) {
+        state.settings.reminderTimes = state.settings.reminderTime ? [state.settings.reminderTime] : ['19:00'];
+      }
+      delete state.settings.reminderTime;
+      if (!state.settings.reminderTimes.length) state.settings.reminderTimes = ['19:00'];
       if (!state.settings.areas || !state.settings.areas.length) state.settings.areas = DEFAULT_AREAS.slice();
     }
   } catch (e) { console.warn('No se pudo leer el estado local', e); }
@@ -414,7 +421,17 @@ function areaColorHex(name) {
 function renderAjustes() {
   // notificaciones
   $('#notif-toggle').setAttribute('aria-checked', state.settings.notifications ? 'true' : 'false');
-  $('#reminder-time').value = state.settings.reminderTime;
+  // horas de recordatorio (varias)
+  const rt = $('#reminder-times'); rt.innerHTML = '';
+  (state.settings.reminderTimes || []).slice().sort().forEach((t, i) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="rt-time">🔔 ${t}</span><button aria-label="Quitar">✕</button>`;
+    $('button', li).onclick = () => {
+      state.settings.reminderTimes = state.settings.reminderTimes.filter(x => x !== t);
+      save(); renderAjustes();
+    };
+    rt.appendChild(li);
+  });
   // áreas
   const ul = $('#area-editor'); ul.innerHTML = '';
   state.settings.areas.forEach((a, i) => {
@@ -459,18 +476,29 @@ function scheduleReminderCheck() {
   window._remInt = setInterval(reminderTick, 60000);
   reminderTick();
 }
+function firedToday() {
+  // { date: 'YYYY-MM-DD', times: ['09:00', ...] } — horas ya avisadas hoy
+  try {
+    const raw = JSON.parse(localStorage.getItem('miagenda_fired') || '{}');
+    if (raw.date === todayStr() && Array.isArray(raw.times)) return raw;
+  } catch (e) {}
+  return { date: todayStr(), times: [] };
+}
 function reminderTick() {
   if (!state.settings.notifications || Notification.permission !== 'granted') return;
+  const times = state.settings.reminderTimes || [];
+  if (!times.length) return;
   const now = new Date();
   const hhmm = pad(now.getHours()) + ':' + pad(now.getMinutes());
-  const last = localStorage.getItem('miagenda_lastNotif');
-  if (hhmm >= state.settings.reminderTime && last !== todayStr()) {
-    const p = pendingToday();
-    if (p > 0) {
-      notify('Tareas pendientes', `Tienes ${p} tarea${p === 1 ? '' : 's'} sin completar hoy.`);
-      localStorage.setItem('miagenda_lastNotif', todayStr());
-    }
-  }
+  const fired = firedToday();
+  // disparar cada hora de la lista que ya llegó y no se haya avisado hoy
+  const due = times.filter(t => hhmm >= t && !fired.times.includes(t));
+  if (!due.length) return;
+  // marcar como avisadas aunque no haya pendientes, para no repetir el mismo minuto
+  due.forEach(t => fired.times.push(t));
+  localStorage.setItem('miagenda_fired', JSON.stringify(fired));
+  const p = pendingToday();
+  if (p > 0) notify('Tareas pendientes', `Tienes ${p} tarea${p === 1 ? '' : 's'} sin completar hoy.`);
 }
 
 /* =====================================================================
@@ -846,7 +874,19 @@ function wire() {
     } else { state.settings.notifications = false; toast('Recordatorios desactivados'); }
     save(); renderAjustes(); scheduleReminderCheck();
   };
-  $('#reminder-time').onchange = e => { state.settings.reminderTime = e.target.value; save(); };
+  // ajustes: agregar hora de recordatorio
+  $('#add-rtime').onsubmit = e => {
+    e.preventDefault();
+    const t = $('#new-rtime').value;
+    if (!t) return;
+    state.settings.reminderTimes = state.settings.reminderTimes || [];
+    if (state.settings.reminderTimes.includes(t)) { toast('Esa hora ya está en la lista'); return; }
+    state.settings.reminderTimes.push(t);
+    state.settings.reminderTimes.sort();
+    save(); renderAjustes();
+    if (state.settings.notifications) scheduleReminderCheck();
+    toast('Hora agregada');
+  };
 
   // áreas
   $('#add-area').onsubmit = e => {
