@@ -12,12 +12,12 @@ window.APP_CONFIG = {
      Crea un proyecto > Agrega una app Web > copia el objeto firebaseConfig
      y pégalo aquí. Activa Authentication (Google) y Firestore Database. */
   firebase: {
-    apiKey:            "",
-    authDomain:        "",
-    projectId:         "",
-    storageBucket:     "",
-    messagingSenderId: "",
-    appId:             ""
+    apiKey:            "AIzaSyDyJkaPiaFHm8TorUdEktUHT9tSDXsseT0",
+    authDomain:        "agenda-bf2e9.firebaseapp.com",
+    projectId:         "agenda-bf2e9",
+    storageBucket:     "agenda-bf2e9.firebasestorage.app",
+    messagingSenderId: "101033639844",
+    appId:             "1:101033639844:web:1b7c49b3ace172f7584b31"
   },
 
   /* --- 2) GOOGLE CALENDAR (crear/ver eventos) --------------------------
@@ -26,7 +26,7 @@ window.APP_CONFIG = {
      En "Orígenes autorizados de JavaScript" agrega la URL donde publiques
      la app (ej. https://tuusuario.github.io  o  https://tuapp.netlify.app).
      Habilita también "Google Calendar API". Pega el ID aquí: */
-  googleClientId: "",
+  googleClientId: "1037484893371-2voj6kumpsn3ghdcucf09pln1ub9vjjl.apps.googleusercontent.com",
 
   /* --- Opciones generales --------------------------------------------- */
   appName: "Mi Agenda",
