@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#4f46e5" />
+  <title>Mi Agenda</title>
+  <meta name="description" content="Agenda personal de control: tareas diarias, hábitos, estadísticas de enfoque y sincronización con Google." />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ======================= CABECERA ======================= -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M6 3v3M18 3v3M4 8h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="m9 14 2 2 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <div class="brand-text">
+          <strong>Mi Agenda</strong>
+          <span id="today-label" class="brand-sub"></span>
+        </div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="sync-pill" class="sync-pill" title="Estado de sincronización">
+        <span class="dot"></span><span id="sync-text">Local</span>
+      </span>
+      <button id="theme-toggle" class="icon-btn" title="Cambiar tema" aria-label="Cambiar tema">
+        <svg class="i-sun" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <svg class="i-moon" viewBox="0 0 24 24" fill="none"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      </button>
+      <button id="auth-btn" class="auth-btn">Entrar con Google</button>
+      <img id="user-avatar" class="user-avatar" alt="" hidden />
+    </div>
+  </header>
+
+  <main class="content">
+    <!-- ======================= HOY ======================= -->
+    <section id="view-hoy" class="view">
+      <div class="hoy-header">
+        <div class="progress-ring-wrap">
+          <svg class="progress-ring" viewBox="0 0 120 120">
+            <circle class="ring-bg" cx="60" cy="60" r="52" />
+            <circle id="ring-fill" class="ring-fill" cx="60" cy="60" r="52" />
+          </svg>
+          <div class="ring-center">
+            <span id="ring-pct">0%</span>
+            <small id="ring-sub">0 de 0</small>
+          </div>
+        </div>
+        <div class="hoy-summary">
+          <h1>Tu día</h1>
+          <p id="hoy-motivation" class="muted">Agrega tu primera tarea del día.</p>
+          <div class="chip-row" id="filter-chips">
+            <button class="chip active" data-filter="all">Todas</button>
+            <button class="chip" data-filter="pending">Pendientes</button>
+            <button class="chip" data-filter="done">Hechas</button>
+            <button class="chip" data-filter="carried">Arrastradas</button>
+          </div>
+        </div>
+      </div>
+
+      <form id="quick-add" class="quick-add" autocomplete="off">
+        <input id="qa-title" type="text" placeholder="¿Qué necesitas hacer hoy?" required />
+        <button type="submit" class="btn-primary" title="Agregar tarea">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </form>
+      <div id="qa-advanced" class="qa-advanced">
+        <select id="qa-area" class="field" title="Área de enfoque"></select>
+        <div class="imp-select" id="qa-importance" role="group" aria-label="Importancia">
+          <button type="button" class="imp alta" data-imp="alta" title="Alta">Alta</button>
+          <button type="button" class="imp media active" data-imp="media" title="Media">Media</button>
+          <button type="button" class="imp baja" data-imp="baja" title="Baja">Baja</button>
+        </div>
+        <input id="qa-time" type="time" class="field" title="Hora (opcional)" />
+      </div>
+
+      <ul id="task-list" class="task-list"></ul>
+      <div id="hoy-empty" class="empty-state" hidden>
+        <p>Sin tareas con este filtro.</p>
+      </div>
+    </section>
+
+    <!-- ======================= HÁBITOS ======================= -->
+    <section id="view-habitos" class="view" hidden>
+      <div class="view-head">
+        <h1>Hábitos y rutinas</h1>
+        <button id="add-habit-btn" class="btn-ghost">+ Nuevo hábito</button>
+      </div>
+      <p class="muted">Actividades que se repiten. Marca el día y mira tu progreso y racha.</p>
+      <ul id="habit-list" class="habit-list"></ul>
+      <div id="habit-empty" class="empty-state" hidden>
+        <p>Aún no tienes hábitos. Crea uno para empezar a medir tu constancia.</p>
+      </div>
+    </section>
+
+    <!-- ======================= ESTADÍSTICAS ======================= -->
+    <section id="view-stats" class="view" hidden>
+      <div class="view-head"><h1>Estadísticas</h1></div>
+      <div class="stat-range">
+        <button class="chip active" data-range="7">7 días</button>
+        <button class="chip" data-range="30">30 días</button>
+        <button class="chip" data-range="90">90 días</button>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-tile"><span id="s-done" class="big">0</span><small>Tareas completadas</small></div>
+        <div class="stat-tile"><span id="s-rate" class="big">0%</span><small>Tasa de cumplimiento</small></div>
+        <div class="stat-tile"><span id="s-streak" class="big">0</span><small>Mejor racha de hábito</small></div>
+        <div class="stat-tile"><span id="s-focus" class="big">—</span><small>Área de más enfoque</small></div>
+      </div>
+      <div class="card">
+        <h3>Áreas de enfoque <span class="muted">— dónde concentras tu esfuerzo</span></h3>
+        <div class="chart-box"><canvas id="chart-areas"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Tareas completadas por día</h3>
+        <div class="chart-box"><canvas id="chart-daily"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Por nivel de importancia</h3>
+        <div class="chart-box small"><canvas id="chart-importance"></canvas></div>
+      </div>
+    </section>
+
+    <!-- ======================= AGENDA / GOOGLE ======================= -->
+    <section id="view-agenda" class="view" hidden>
+      <div class="view-head"><h1>Agenda</h1></div>
+      <div id="cal-disconnected" class="card calendar-cta">
+        <p><strong>Conecta Google Calendar</strong> para ver tus eventos aquí y crear citas desde la app.</p>
+        <button id="cal-connect" class="btn-primary wide">Conectar Google Calendar</button>
+        <p id="cal-config-note" class="muted small" hidden>Falta configurar el <code>googleClientId</code> en <code>config.js</code>.</p>
+      </div>
+      <div id="cal-connected" hidden>
+        <div class="view-head sub">
+          <h3>Próximos eventos</h3>
+          <button id="add-event-btn" class="btn-ghost">+ Nueva cita</button>
+        </div>
+        <ul id="event-list" class="event-list"></ul>
+        <div id="event-empty" class="empty-state" hidden><p>Sin eventos próximos.</p></div>
+      </div>
+    </section>
+
+    <!-- ======================= AJUSTES ======================= -->
+    <section id="view-ajustes" class="view" hidden>
+      <div class="view-head"><h1>Ajustes</h1></div>
+
+      <div class="card">
+        <h3>Recordatorios</h3>
+        <label class="row-between">
+          <span>Notificaciones de pendientes</span>
+          <button id="notif-toggle" class="switch" role="switch" aria-checked="false"><span></span></button>
+        </label>
+        <label class="row-between">
+          <span>Hora del recordatorio diario</span>
+          <input id="reminder-time" type="time" class="field narrow" value="19:00" />
+        </label>
+        <p class="muted small">Recibirás un aviso si quedan tareas sin marcar. En el celular, instala la app para avisos más confiables.</p>
+      </div>
+
+      <div class="card">
+        <h3>Áreas de enfoque</h3>
+        <p class="muted small">Personaliza las áreas de tu vida para clasificar tareas y hábitos.</p>
+        <ul id="area-editor" class="area-editor"></ul>
+        <form id="add-area" class="inline-add">
+          <input id="new-area" class="field" placeholder="Nueva área (ej. Salud)" />
+          <input id="new-area-color" type="color" value="#4f46e5" class="color-field" />
+          <button class="btn-ghost">Agregar</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3>Respaldo</h3>
+        <div class="btn-row">
+          <button id="export-btn" class="btn-ghost">Exportar datos (JSON)</button>
+          <button id="import-btn" class="btn-ghost">Importar datos</button>
+          <input id="import-file" type="file" accept="application/json" hidden />
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Cuenta y sincronización</h3>
+        <p id="sync-status-detail" class="muted small">Modo local. Entra con Google para sincronizar entre dispositivos.</p>
+        <button id="signout-btn" class="btn-ghost danger" hidden>Cerrar sesión</button>
+      </div>
+
+      <p class="version-note">Mi Agenda · v1.0 · hecha para Paco</p>
+    </section>
+  </main>
+
+  <!-- ======================= NAVEGACIÓN ======================= -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-view="hoy">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Hoy</span>
+    </button>
+    <button class="nav-btn" data-view="habitos">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Hábitos</span>
+    </button>
+    <button class="nav-btn" data-view="stats">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Estadísticas</span>
+    </button>
+    <button class="nav-btn" data-view="agenda">
+      <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M3 9h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Agenda</span>
+    </button>
+    <button class="nav-btn" data-view="ajustes">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z" stroke="currentColor" stroke-width="1.6"/></svg><span>Ajustes</span>
+    </button>
+  </nav>
+
+  <!-- ======================= MODAL GENÉRICO ======================= -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h3 id="modal-title">Título</h3>
+        <button class="icon-btn" data-close aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="chart.umd.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
