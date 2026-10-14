@@ -627,34 +627,72 @@ async function gcalFetch(url, opts = {}) {
   opts.headers = Object.assign({ Authorization: 'Bearer ' + gcal.token, 'Content-Type': 'application/json' }, opts.headers);
   const r = await fetch(url, opts);
   if (r.status === 401) { gcal.token = null; sessionStorage.removeItem('gcal_token'); throw new Error('token'); }
-  return r.json();
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const msg = (data && data.error && data.error.message) ? data.error.message : ('HTTP ' + r.status);
+    throw new Error(msg);
+  }
+  return data;
 }
+const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Tegucigalpa';
+// Opciones del menú de recordatorios (minutos antes del evento)
+const REMINDER_OPTS = [
+  [0, 'A la hora del evento'], [5, '5 minutos antes'], [10, '10 minutos antes'],
+  [15, '15 minutos antes'], [30, '30 minutos antes'], [60, '1 hora antes'],
+  [120, '2 horas antes'], [1440, '1 día antes'], [2880, '2 días antes'], [10080, '1 semana antes']
+];
 async function loadEvents() {
   if (!gcal.token) return;
   try {
-    const now = new Date().toISOString();
-    const max = new Date(Date.now() + 30 * 86400000).toISOString();
-    const data = await gcalFetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now}&timeMax=${max}&singleEvents=true&orderBy=startTime&maxResults=20`);
+    // Desde el inicio de hoy (para no ocultar eventos de hoy más temprano)
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const timeMin = start.toISOString();
+    const max = new Date(Date.now() + 60 * 86400000).toISOString();
+    const data = await gcalFetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(max)}&singleEvents=true&orderBy=startTime&maxResults=50`);
     const ul = $('#event-list'); ul.innerHTML = '';
     const items = data.items || [];
     items.forEach(ev => {
       const s = ev.start.dateTime || ev.start.date;
       const d = new Date(s);
       const timeStr = ev.start.dateTime ? d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : 'Todo el día';
+      // resumen de recordatorios
+      let rem = '';
+      if (ev.reminders) {
+        if (ev.reminders.useDefault) rem = '🔔 predeterminado';
+        else if (ev.reminders.overrides && ev.reminders.overrides.length) {
+          const o = ev.reminders.overrides[0];
+          const lbl = (REMINDER_OPTS.find(x => x[0] === o.minutes) || [0, o.minutes + ' min'])[1];
+          rem = '🔔 ' + lbl + (ev.reminders.overrides.length > 1 ? ' +' + (ev.reminders.overrides.length - 1) : '');
+        }
+      }
       const li = document.createElement('li');
       li.className = 'event';
       li.innerHTML = `<div class="event-date"><div class="day">${d.getDate()}</div><div class="mon">${MES[d.getMonth()]}</div></div>
-        <div class="event-main"><div class="event-title">${esc(ev.summary || '(sin título)')}</div><div class="event-time">${WD[d.getDay()]} · ${timeStr}</div></div>`;
+        <div class="event-main"><div class="event-title">${esc(ev.summary || '(sin título)')}</div>
+        <div class="event-time">${WD[d.getDay()]} · ${timeStr}${rem ? ' · ' + rem : ''}</div></div>
+        ${ev.htmlLink ? `<a class="event-open" href="${ev.htmlLink}" target="_blank" rel="noopener" title="Abrir en Google Calendar"><svg viewBox="0 0 24 24" fill="none"><path d="M7 17 17 7M9 7h8v8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>` : ''}`;
       ul.appendChild(li);
     });
     $('#event-empty').hidden = items.length > 0;
   } catch (e) {
-    if (e.message === 'token') { $('#cal-connected').hidden = true; $('#cal-disconnected').hidden = false; }
+    if (e.message === 'token') { $('#cal-connected').hidden = true; $('#cal-disconnected').hidden = false; toast('Vuelve a conectar Google Calendar'); }
+    else toast('No se pudieron cargar los eventos: ' + e.message);
     console.warn(e);
   }
 }
+function reminderRowHtml(sel = 10, method = 'popup') {
+  const opts = REMINDER_OPTS.map(o => `<option value="${o[0]}" ${o[0] === sel ? 'selected' : ''}>${o[1]}</option>`).join('');
+  return `<div class="rem-row">
+    <select class="rem-method">
+      <option value="popup" ${method === 'popup' ? 'selected' : ''}>Notificación</option>
+      <option value="email" ${method === 'email' ? 'selected' : ''}>Correo</option>
+    </select>
+    <select class="rem-min">${opts}</select>
+    <button type="button" class="rem-del" aria-label="Quitar">✕</button>
+  </div>`;
+}
 function openEventModal() {
-  const now = new Date(); now.setMinutes(0);
+  const now = new Date(); now.setMinutes(0, 0, 0);
   const start = new Date(now.getTime() + 3600000);
   const end = new Date(start.getTime() + 3600000);
   const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -665,24 +703,56 @@ function openEventModal() {
     <input id="e-start" type="datetime-local" value="${fmt(start)}" />
     <label>Fin</label>
     <input id="e-end" type="datetime-local" value="${fmt(end)}" />
-    <label>Descripción (opcional)</label>
+    <label>Recordatorios</label>
+    <div id="rem-list">${reminderRowHtml(10, 'popup')}</div>
+    <button type="button" id="rem-add" class="btn-ghost" style="margin-top:8px">+ Agregar recordatorio</button>
+    <label style="margin-top:14px">Descripción (opcional)</label>
     <textarea id="e-desc"></textarea>
     <div class="modal-actions"><button class="btn-primary" id="e-save">Crear en Google Calendar</button></div>`);
+
+  const wireRows = () => $$('#rem-list .rem-del').forEach(b => b.onclick = () => {
+    if ($$('#rem-list .rem-row').length > 1) b.closest('.rem-row').remove();
+    else b.closest('.rem-row').remove(); // permitir quedar sin recordatorios
+  });
+  wireRows();
+  $('#rem-add').onclick = () => {
+    if ($$('#rem-list .rem-row').length >= 5) { toast('Máximo 5 recordatorios'); return; }
+    $('#rem-list').insertAdjacentHTML('beforeend', reminderRowHtml(30, 'popup'));
+    wireRows();
+  };
+
   $('#e-save').onclick = async () => {
     const title = $('#e-title').value.trim();
     if (!title) { toast('Escribe un título'); return; }
+    const sVal = $('#e-start').value, eVal = $('#e-end').value;
+    if (!sVal || !eVal) { toast('Define inicio y fin'); return; }
+    if (new Date(eVal) <= new Date(sVal)) { toast('El fin debe ser después del inicio'); return; }
+    // construir recordatorios
+    const overrides = $$('#rem-list .rem-row').map(row => ({
+      method: $('.rem-method', row).value,
+      minutes: parseInt($('.rem-min', row).value, 10)
+    }));
+    const reminders = overrides.length ? { useDefault: false, overrides } : { useDefault: false, overrides: [] };
+    const btn = $('#e-save'); btn.disabled = true; btn.textContent = 'Creando…';
     try {
       await gcalFetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
         method: 'POST',
         body: JSON.stringify({
           summary: title, description: $('#e-desc').value,
-          start: { dateTime: new Date($('#e-start').value).toISOString() },
-          end: { dateTime: new Date($('#e-end').value).toISOString() },
-          reminders: { useDefault: true }
+          start: { dateTime: new Date(sVal).toISOString(), timeZone: TZ },
+          end: { dateTime: new Date(eVal).toISOString(), timeZone: TZ },
+          reminders
         })
       });
-      toast('Cita creada ✓'); closeModal(); loadEvents();
-    } catch (e) { toast('No se pudo crear la cita'); }
+      toast('Cita creada ✓'); closeModal();
+      // Google tarda un instante en indexar el evento nuevo: refrescar con margen
+      loadEvents();
+      setTimeout(loadEvents, 1200);
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'Crear en Google Calendar';
+      toast('No se pudo crear: ' + e.message);
+      console.warn(e);
+    }
   };
 }
 function initCalendarView() {
