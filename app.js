@@ -70,7 +70,52 @@ function loadLocal() {
       if (!state.settings.areas || !state.settings.areas.length) state.settings.areas = DEFAULT_AREAS.slice();
     }
   } catch (e) { console.warn('No se pudo leer el estado local', e); }
+  migrateItems(); // agrega updatedAt/deleted a tareas y hábitos existentes SIN alterar su contenido
 }
+
+/* ---------------------- sincronización: fusión por elemento ----------------------
+   Cada tarea/hábito lleva su propio updatedAt (marca de tiempo) y un indicador
+   deleted (borrado suave). Así la nube UNE lo de todos los dispositivos en vez de
+   reemplazar el bloque completo: lo que agregas en el teléfono y en la web se
+   combina y no se pierde. */
+function nowMs() { return Date.now(); }
+function touch(item) { item.updatedAt = nowMs(); return item; }
+function touchSettings() { state.settings.updatedAt = nowMs(); }
+function itemBaseline(it) { // fecha base para datos viejos (antes de tener updatedAt)
+  const d = it.createdAt || it.date;
+  const t = d ? parseD(d).getTime() : NaN;
+  return Number.isFinite(t) ? t : 1;
+}
+function migrateItems() {
+  (state.tasks || []).forEach(it => {
+    if (typeof it.updatedAt !== 'number') it.updatedAt = itemBaseline(it);
+    if (it.deleted === undefined) it.deleted = false;
+  });
+  (state.habits || []).forEach(it => {
+    if (typeof it.updatedAt !== 'number') it.updatedAt = itemBaseline(it);
+    if (it.deleted === undefined) it.deleted = false;
+  });
+}
+function mergeHistory(a, b) { return Object.assign({}, a || {}, b || {}); } // unión; marcado gana
+function mergeLists(local, remote, isHabit) {
+  const map = new Map();
+  (remote || []).forEach(it => { if (it && it.id) map.set(it.id, it); });
+  (local || []).forEach(it => {
+    if (!it || !it.id) return;
+    const other = map.get(it.id);
+    if (!other) { map.set(it.id, it); return; }
+    const lu = it.updatedAt || 0, ru = other.updatedAt || 0;
+    let win = lu >= ru ? it : other;
+    if (isHabit) { win = Object.assign({}, win); win.history = mergeHistory(other.history, it.history); }
+    map.set(it.id, win);
+  });
+  return [...map.values()];
+}
+function sig(list, isHabit) {
+  return (list || []).map(i => i.id + ':' + (i.updatedAt || 0) + ':' + (i.deleted ? 1 : 0) +
+    (isHabit ? ':' + (i.history ? Object.keys(i.history).length : 0) : '')).sort().join('|');
+}
+
 let _saveTimer = null, _skipCloud = false;
 function save(sync = true) {
   state.updatedAt = Date.now();
@@ -83,10 +128,11 @@ function rolloverTasks() {
   const t = todayStr();
   let moved = 0;
   state.tasks.forEach(task => {
-    if (!task.done && task.date < t) {
+    if (!task.deleted && !task.done && task.date < t) {
       task.origDate = task.origDate || task.date;
       task.rolledOver = (task.rolledOver || 0) + daysBetween(task.date, t);
       task.date = t;
+      touch(task);
       moved++;
     }
   });
@@ -108,7 +154,7 @@ function areaColor(name) {
    ===================================================================== */
 function renderHoy() {
   const t = todayStr();
-  const todays = state.tasks.filter(x => x.date === t);
+  const todays = state.tasks.filter(x => !x.deleted && x.date === t);
   const done = todays.filter(x => x.done).length;
   const total = todays.length;
 
@@ -162,7 +208,7 @@ function taskEl(task) {
     </div>`;
   $('.task-check', li).onclick = () => toggleTask(task.id);
   $('.t-edit', li).onclick = () => openTaskModal(task);
-  $('.t-del', li).onclick = () => { if (confirm('¿Eliminar esta tarea?')) { state.tasks = state.tasks.filter(x => x.id !== task.id); save(); renderAll(); } };
+  $('.t-del', li).onclick = () => { if (confirm('¿Eliminar esta tarea?')) { task.deleted = true; touch(task); save(); renderAll(); } };
   return li;
 }
 
@@ -171,6 +217,7 @@ function toggleTask(id) {
   if (!t) return;
   t.done = !t.done;
   t.completedAt = t.done ? todayStr() : null;
+  touch(t);
   save(); renderHoy();
   if (t.done) toast('Tarea completada ✓');
 }
@@ -179,7 +226,8 @@ function addTask(data) {
   state.tasks.push(Object.assign({
     id: uid(), title: '', notes: '', area: state.settings.areas[0]?.name || '',
     importance: 'media', time: '', date: todayStr(), done: false,
-    completedAt: null, createdAt: todayStr(), rolledOver: 0, origDate: null
+    completedAt: null, createdAt: todayStr(), rolledOver: 0, origDate: null,
+    updatedAt: nowMs(), deleted: false
   }, data));
   save(); renderAll();
 }
@@ -217,7 +265,7 @@ function openTaskModal(task) {
     const title = $('#m-title').value.trim();
     if (!title) { toast('Escribe un título'); return; }
     const d = { title, notes: $('#m-notes').value.trim(), area: $('#m-area').value, importance: imp, date: $('#m-date').value, time: $('#m-time').value };
-    if (edit) { Object.assign(task, d); save(); renderAll(); }
+    if (edit) { Object.assign(task, d); touch(task); save(); renderAll(); }
     else addTask(d);
     closeModal();
   };
@@ -228,8 +276,9 @@ function openTaskModal(task) {
    ===================================================================== */
 function renderHabitos() {
   const ul = $('#habit-list'); ul.innerHTML = '';
-  state.habits.forEach(h => ul.appendChild(habitEl(h)));
-  $('#habit-empty').hidden = state.habits.length > 0;
+  const list = state.habits.filter(h => !h.deleted);
+  list.forEach(h => ul.appendChild(habitEl(h)));
+  $('#habit-empty').hidden = list.length > 0;
 }
 
 function isScheduled(h, d) {
@@ -294,9 +343,10 @@ function habitEl(h) {
   $('.habit-toggle', li).onclick = () => {
     const k = todayStr();
     if (h.history[k]) delete h.history[k]; else h.history[k] = true;
+    touch(h);
     save(); renderHabitos();
   };
-  $('.habit-del', li).onclick = () => { if (confirm('¿Eliminar este hábito?')) { state.habits = state.habits.filter(x => x.id !== h.id); save(); renderHabitos(); } };
+  $('.habit-del', li).onclick = () => { if (confirm('¿Eliminar este hábito?')) { h.deleted = true; touch(h); save(); renderHabitos(); } };
   return li;
 }
 
@@ -318,7 +368,7 @@ function openHabitModal() {
     const title = $('#h-title').value.trim();
     if (!title) { toast('Escribe un nombre'); return; }
     const days = $$('#h-days button.on').map(b => +b.dataset.d);
-    state.habits.push({ id: uid(), title, area: $('#h-area').value, color: areaColor($('#h-area').value), days: days.length === 7 ? 'daily' : days, history: {}, createdAt: todayStr() });
+    state.habits.push({ id: uid(), title, area: $('#h-area').value, color: areaColor($('#h-area').value), days: days.length === 7 ? 'daily' : days, history: {}, createdAt: todayStr(), updatedAt: nowMs(), deleted: false });
     save(); renderHabitos(); closeModal();
   };
 }
@@ -331,8 +381,8 @@ function inRange(dateStr, days) {
   return diff >= 0 && diff < days;
 }
 function renderStats() {
-  const done = state.tasks.filter(x => x.done && x.completedAt && inRange(x.completedAt, statRange));
-  const scoped = state.tasks.filter(x => inRange(x.date, statRange) || (x.completedAt && inRange(x.completedAt, statRange)));
+  const done = state.tasks.filter(x => !x.deleted && x.done && x.completedAt && inRange(x.completedAt, statRange));
+  const scoped = state.tasks.filter(x => !x.deleted && (inRange(x.date, statRange) || (x.completedAt && inRange(x.completedAt, statRange))));
   const rate = scoped.length ? Math.round((scoped.filter(x => x.done).length / scoped.length) * 100) : 0;
 
   // por área
@@ -341,7 +391,7 @@ function renderStats() {
   const focusArea = Object.entries(byArea).sort((a, b) => b[1] - a[1])[0];
 
   // mejor racha de hábitos
-  const bestStreak = state.habits.reduce((m, h) => Math.max(m, habitStreak(h)), 0);
+  const bestStreak = state.habits.filter(h => !h.deleted).reduce((m, h) => Math.max(m, habitStreak(h)), 0);
 
   $('#s-done').textContent = done.length;
   $('#s-rate').textContent = rate + '%';
@@ -379,7 +429,7 @@ function drawDailyChart() {
   for (let i = statRange - 1; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i);
     labels.push(statRange <= 7 ? WD[d.getDay()] : `${d.getDate()}/${d.getMonth() + 1}`);
-    data.push(state.tasks.filter(x => x.done && x.completedAt === dstr(d)).length);
+    data.push(state.tasks.filter(x => !x.deleted && x.done && x.completedAt === dstr(d)).length);
   }
   const th = chartTheme();
   charts.daily = new Chart($('#chart-daily'), {
@@ -428,7 +478,7 @@ function renderAjustes() {
     li.innerHTML = `<span class="rt-time">🔔 ${t}</span><button aria-label="Quitar">✕</button>`;
     $('button', li).onclick = () => {
       state.settings.reminderTimes = state.settings.reminderTimes.filter(x => x !== t);
-      save(); renderAjustes();
+      touchSettings(); save(); renderAjustes();
     };
     rt.appendChild(li);
   });
@@ -437,7 +487,7 @@ function renderAjustes() {
   state.settings.areas.forEach((a, i) => {
     const li = document.createElement('li');
     li.innerHTML = `<span class="swatch" style="background:${a.color}"></span><span class="name">${esc(a.name)}</span><button aria-label="Quitar">✕</button>`;
-    $('button', li).onclick = () => { state.settings.areas.splice(i, 1); save(); renderAjustes(); renderAll(); };
+    $('button', li).onclick = () => { state.settings.areas.splice(i, 1); touchSettings(); save(); renderAjustes(); renderAll(); };
     ul.appendChild(li);
   });
   // cuenta
@@ -461,7 +511,7 @@ async function enableNotifications() {
 }
 function pendingToday() {
   const t = todayStr();
-  return state.tasks.filter(x => x.date === t && !x.done).length;
+  return state.tasks.filter(x => !x.deleted && x.date === t && !x.done).length;
 }
 async function notify(title, body) {
   if (Notification.permission !== 'granted') return;
@@ -520,6 +570,7 @@ function importData(file) {
       if (!p.tasks && !p.habits) throw new Error('Formato no válido');
       state.tasks = p.tasks || []; state.habits = p.habits || [];
       if (p.settings) state.settings = Object.assign(state.settings, p.settings);
+      migrateItems(); touchSettings();
       save(); applyTheme(); renderAll();
       toast('Datos importados ✓');
     } catch (e) { toast('Archivo inválido'); }
@@ -559,30 +610,31 @@ async function initFirebase() {
         fb.onSnap = fs.onSnapshot(fb.doc, snap => {
           if (!snap.exists()) { cloudWrite(); return; } // primera vez en la nube: subir lo local
           const remote = snap.data();
-          const rUpd = remote.updatedAt || 0;
-          const lUpd = state.updatedAt || 0;
-          // PROTECCIÓN anti-borrado: si la nube viene vacía pero este equipo tiene
-          // datos, subimos los nuestros en vez de traer el vacío (auto-reparación).
-          const remoteEmpty = (!remote.tasks || !remote.tasks.length) && (!remote.habits || !remote.habits.length);
-          const localHasData = (state.tasks && state.tasks.length) || (state.habits && state.habits.length);
-          if (remoteEmpty && localHasData) { cloudWrite(); setSync('synced'); return; }
-          if (rUpd > lUpd) {
-            // la nube es más reciente: aplicarla (y nunca pisarla con lo vacío del equipo nuevo)
-            _skipCloud = true;
-            state.tasks = remote.tasks || [];
-            state.habits = remote.habits || [];
-            if (remote.settings) state.settings = Object.assign(state.settings, remote.settings);
-            state.updatedAt = rUpd;
-            localStorage.setItem(LS_KEY, JSON.stringify(state));
-            _skipCloud = false;
-            applyTheme(); renderAll();
-          } else if (lUpd > rUpd) {
-            // lo local es más reciente: subirlo
-            cloudWrite();
-          }
+          // FUSIÓN POR ELEMENTO: unir tareas y hábitos de la nube con los locales
+          // (gana la versión con updatedAt más reciente; los hábitos unen su historial).
+          const mt = mergeLists(state.tasks, remote.tasks, false);
+          const mh = mergeLists(state.habits, remote.habits, true);
+          // Ajustes: gana el más reciente según su propia marca de tiempo.
+          let settings = state.settings;
+          const rs = remote.settings;
+          if (rs && (rs.updatedAt || 0) > (state.settings.updatedAt || 0)) settings = Object.assign({}, state.settings, rs);
+
+          // aplicar el resultado combinado localmente (sin reenviar aún)
+          _skipCloud = true;
+          state.tasks = mt; state.habits = mh; state.settings = settings;
+          state.updatedAt = Date.now();
+          localStorage.setItem(LS_KEY, JSON.stringify(state));
+          _skipCloud = false;
+          applyTheme(); renderAll();
+
+          // ¿aportamos algo que la nube no tiene? entonces subir el combinado.
+          const changed = sig(mt, false) !== sig(remote.tasks, false)
+            || sig(mh, true) !== sig(remote.habits, true)
+            || (settings.updatedAt || 0) > (rs ? (rs.updatedAt || 0) : 0);
+          if (changed) cloudWrite();
           setSync('synced');
         }, err => { console.warn('snapshot', err); setSync('local'); toast('Sin acceso a la nube: revisa las reglas de Firestore'); });
-        // Sin cloudWrite incondicional: el primer snapshot decide quién gana (evita borrar datos)
+        // El primer snapshot fusiona nube + local; nada se reemplaza ni se pierde.
       } else {
         if (fb.onSnap) { fb.onSnap(); fb.onSnap = null; }
         setSync('local');
@@ -847,7 +899,7 @@ function wire() {
   $$('.nav-btn').forEach(b => b.onclick = () => showView(b.dataset.view));
 
   // tema
-  $('#theme-toggle').onclick = () => { state.settings.theme = state.settings.theme === 'dark' ? 'light' : 'dark'; applyTheme(); save(); if (currentView === 'stats') renderStats(); };
+  $('#theme-toggle').onclick = () => { state.settings.theme = state.settings.theme === 'dark' ? 'light' : 'dark'; touchSettings(); applyTheme(); save(); if (currentView === 'stats') renderStats(); };
 
   // quick add
   $('#quick-add').onsubmit = e => {
@@ -883,6 +935,7 @@ function wire() {
       if (!ok) return;
       state.settings.notifications = true; toast('Recordatorios activados');
     } else { state.settings.notifications = false; toast('Recordatorios desactivados'); }
+    touchSettings();
     save(); renderAjustes(); scheduleReminderCheck();
   };
   // ajustes: agregar hora de recordatorio
@@ -894,7 +947,7 @@ function wire() {
     if (state.settings.reminderTimes.includes(t)) { toast('Esa hora ya está en la lista'); return; }
     state.settings.reminderTimes.push(t);
     state.settings.reminderTimes.sort();
-    save(); renderAjustes();
+    touchSettings(); save(); renderAjustes();
     if (state.settings.notifications) scheduleReminderCheck();
     toast('Hora agregada');
   };
@@ -905,7 +958,7 @@ function wire() {
     const n = $('#new-area').value.trim(); if (!n) return;
     state.settings.areas.push({ name: n, color: $('#new-area-color').value });
     $('#new-area').value = '';
-    save(); renderAjustes(); renderAll();
+    touchSettings(); save(); renderAjustes(); renderAll();
   };
 
   // respaldo
@@ -944,7 +997,7 @@ function init() {
   if (state.settings.notifications) scheduleReminderCheck();
 
   // aviso de bienvenida si hay pendientes arrastradas
-  const carried = state.tasks.filter(x => x.date === todayStr() && x.rolledOver > 0).length;
+  const carried = state.tasks.filter(x => !x.deleted && x.date === todayStr() && x.rolledOver > 0).length;
   if (carried) setTimeout(() => toast(`${carried} tarea${carried === 1 ? '' : 's'} pasaron de días anteriores`), 800);
 }
 
