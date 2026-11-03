@@ -7,6 +7,7 @@
 
 const CFG = window.APP_CONFIG || {};
 const LS_KEY = 'miagenda_state_v1';
+const APP_VERSION = 'v1.6';
 
 /* ---------------------- utilidades ---------------------- */
 const $  = (s, r = document) => r.querySelector(s);
@@ -493,10 +494,13 @@ function renderAjustes() {
   // cuenta
   const signed = !!(window._user);
   $('#signout-btn').hidden = !signed;
+  $('#syncnow-btn').hidden = !signed;
+  const nt = state.tasks.filter(x => !x.deleted).length;
+  const nh = state.habits.filter(x => !x.deleted).length;
   $('#sync-status-detail').textContent = signed
-    ? `Sesión: ${window._user.email}. Tus datos se sincronizan en la nube.`
-    : (hasFirebase() ? 'Modo local. Entra con Google para sincronizar entre dispositivos.'
-                     : 'Modo local. Configura Firebase en config.js para activar la sincronización.');
+    ? `Sesión: ${window._user.email} · ${nt} tareas y ${nh} hábitos en este equipo (${APP_VERSION}).`
+    : (hasFirebase() ? `Modo local (${APP_VERSION}). Entra con Google para sincronizar entre dispositivos.`
+                     : `Modo local (${APP_VERSION}). Configura Firebase en config.js para activar la sincronización.`);
 }
 
 /* =====================================================================
@@ -654,6 +658,30 @@ async function cloudWrite() {
     }, { merge: true });
     setSync('synced');
   } catch (e) { console.warn('cloudWrite', e); setSync('local'); }
+}
+// Sincronización manual: trae la nube, fusiona y vuelve a subir. Útil para forzar
+// que coincidan dos dispositivos sin esperar al listener.
+async function syncNow() {
+  if (!fb.ready || !window._user || !fb.doc) { toast('Primero entra con Google'); return; }
+  try {
+    setSync('syncing');
+    const snap = await fb._fs.getDoc(fb.doc);
+    if (snap.exists()) {
+      const remote = snap.data();
+      const mt = mergeLists(state.tasks, remote.tasks, false);
+      const mh = mergeLists(state.habits, remote.habits, true);
+      let settings = state.settings; const rs = remote.settings;
+      if (rs && (rs.updatedAt || 0) > (state.settings.updatedAt || 0)) settings = Object.assign({}, state.settings, rs);
+      _skipCloud = true;
+      state.tasks = mt; state.habits = mh; state.settings = settings; state.updatedAt = Date.now();
+      localStorage.setItem(LS_KEY, JSON.stringify(state));
+      _skipCloud = false;
+      applyTheme(); renderAll();
+    }
+    await cloudWrite();
+    const vis = state.tasks.filter(x => !x.deleted).length;
+    toast(`Sincronizado · ${vis} tarea${vis === 1 ? '' : 's'}`);
+  } catch (e) { console.warn('syncNow', e); setSync('local'); toast('No se pudo sincronizar: ' + (e.code || e.message || '')); }
 }
 async function signInGoogle() {
   if (!fb.ready) { toast('Configura Firebase en config.js primero'); return; }
@@ -927,6 +955,7 @@ function wire() {
   // auth
   $('#auth-btn').onclick = signInGoogle;
   $('#signout-btn').onclick = signOutGoogle;
+  $('#syncnow-btn').onclick = syncNow;
 
   // ajustes: notificaciones
   $('#notif-toggle').onclick = async () => {
@@ -986,6 +1015,7 @@ function init() {
   renderAll();
   showView('hoy');
   if (CFG.appName) { $('.brand-text strong').textContent = CFG.appName; document.title = CFG.appName; }
+  const vn = $('#version-note'); if (vn) vn.textContent = `Mi Agenda · ${APP_VERSION} · hecha para Paco`;
 
   // service worker
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

@@ -190,10 +190,14 @@
       <div class="card">
         <h3>Cuenta y sincronización</h3>
         <p id="sync-status-detail" class="muted small">Modo local. Entra con Google para sincronizar entre dispositivos.</p>
-        <button id="signout-btn" class="btn-ghost danger" hidden>Cerrar sesión</button>
+        <div class="btn-row">
+          <button id="syncnow-btn" class="btn-ghost" hidden>↻ Sincronizar ahora</button>
+          <button id="signout-btn" class="btn-ghost danger" hidden>Cerrar sesión</button>
+        </div>
+        <p class="muted small" style="margin-top:8px">Si el teléfono y la web no coinciden, toca <b>Sincronizar ahora</b> en ambos (con la misma cuenta). Confirma que los dos muestren la misma versión abajo.</p>
       </div>
 
-      <p class="version-note">Mi Agenda · v1.5 · hecha para Paco</p>
+      <p class="version-note" id="version-note">Mi Agenda · v1.6 · hecha para Paco</p>
     </section>
   </main>
 
